@@ -139,6 +139,27 @@ class MaskFormerClipAdapter(ClipAdapter):
         text_feature = self.get_text_features(text)  # k,feat_dim
         return self.get_sim_logits(text_feature, image_features), unnorm_regions, valid_flag
 
+    def extract_image_features(
+        self,
+        image: torch.Tensor,
+        mask: torch.Tensor,
+        normalize: bool = True,
+    ):
+        (regions, unnorm_regions), region_masks, valid_flag = self._preprocess_image(image, mask, normalize=normalize)
+        if regions is None:
+            return None, valid_flag
+        if isinstance(regions, list):
+            assert NotImplementedError
+            image_features = torch.cat(
+                [self.get_image_features(image_i) for image_i in regions], dim=0
+            )
+        else:
+            if self.mask_prompt_fwd:
+                image_features = self.get_image_features(regions, region_masks)
+            else:
+                image_features = self.get_image_features(regions)
+        return image_features, unnorm_regions, valid_flag
+    
     def get_image_features(self, image, region_masks=None):
         image_features = self.clip_model.visual(image, region_masks)
         image_features = image_features / image_features.norm(dim=-1, keepdim=True)

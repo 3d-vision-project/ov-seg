@@ -389,9 +389,11 @@ class OVSegDEMO(MaskFormer):
         if len(class_names) == 1:
             # Because classification is performed in a 'contrastive' manner, adding others to represent other concepts
             class_names.append('others')
+        image_features = self.clip_adapter.normalize_feature(outputs["pred_logits"])
+        D = image_features.shape[-1]
         text_features = self.clip_adapter.get_text_features(class_names)
         outputs["pred_logits"] = self.clip_adapter.get_sim_logits(
-            text_features, self.clip_adapter.normalize_feature(outputs["pred_logits"])
+            text_features, image_features
         )
         mask_cls_results = outputs["pred_logits"]
         mask_pred_results = outputs["pred_masks"]
@@ -404,8 +406,8 @@ class OVSegDEMO(MaskFormer):
         )
 
         processed_results = []
-        for mask_cls_result, mask_pred_result, input_per_image, image_size in zip(
-            mask_cls_results, mask_pred_results, batched_inputs, images.image_sizes
+        for mask_cls_result, mask_pred_result, input_per_image, image_size, image_feature in zip(
+            mask_cls_results, mask_pred_results, batched_inputs, images.image_sizes, image_features
         ):
             height = image_size[0]
             width = image_size[1]
@@ -414,12 +416,22 @@ class OVSegDEMO(MaskFormer):
             )
             image = input_per_image["image"].to(self.device)
 
-            r, regions = self.demo_inference(mask_cls_result, mask_pred_result, image, class_names)
+            r, regions, clip_feature, mask_pred = self.demo_inference(mask_cls_result, mask_pred_result, image, class_names)
 
             height = input_per_image.get("height", image_size[0])
             width = input_per_image.get("width", image_size[1])
             r = sem_seg_postprocess(r, image_size, height, width)
-            processed_results.append({"sem_seg": r})
+
+            clip_feature = clip_feature if clip_feature is not None else image_feature
+            mask_pred = sem_seg_postprocess(mask_pred, image_size, height, width)
+            bin_mask = mask_pred > self.clip_adapter.mask_thr
+            image_feature_map = torch.zeros(*image_size, D)
+            labels = torch.nonzero(bin_mask).detach().cpu()
+            image_feature_map[labels[:, 1], labels[:, 2]] = clip_feature.detach().cpu()[labels[:, 0], :]
+
+            
+            processed_results.append({"sem_seg": r, 'image_feature_map': image_feature_map})
+
 
         return processed_results
 
@@ -431,10 +443,18 @@ class OVSegDEMO(MaskFormer):
         mask_pred = mask_pred.sigmoid()
 
         regions = None
+        image_features = None
+
         if self.clip_ensemble:
-            clip_cls, regions, valid_flag = self.clip_adapter(
-                image, class_names, mask_pred, normalize=True
+            image_features, unnorm_regions, valid_flag = self.clip_adapter.extract_image_features(
+                image, mask_pred, normalize=True
             )
+            text_feature = self.clip_adapter.get_text_features(class_names)  # k,feat_dim
+            clip_cls, regions = self.clip_adapter.get_sim_logits(text_feature, image_features), unnorm_regions
+
+            # clip_cls, regions, valid_flag = self.clip_adapter(
+            #     image, class_names, mask_pred, normalize=True
+            # )
             if clip_cls is None:
                 clip_cls = torch.empty(0, mask_cls.shape[-1] + 1, device=self.device)
             # softmax before index or after?
@@ -457,4 +477,5 @@ class OVSegDEMO(MaskFormer):
         for idx in select_mask:
             select_cls[idx] = mask_cls[idx]
         semseg = torch.einsum("qc,qhw->chw", select_cls, bin_mask.float())
-        return semseg, regions
+
+        return semseg, regions, image_features, mask_pred

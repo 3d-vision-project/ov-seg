@@ -8,6 +8,7 @@ import os
 import time
 import cv2
 import tqdm
+import torch
 
 from detectron2.config import get_cfg
 
@@ -59,6 +60,10 @@ def get_parser():
         "If not given, will show output in an OpenCV window.",
     )
     parser.add_argument(
+        "--output-clip",
+        help="A file or directory to save output CLIP features. "
+    )
+    parser.add_argument(
         "--opts",
         help="Modify config options using the command-line 'KEY VALUE' pairs",
         default=[],
@@ -97,6 +102,8 @@ if __name__ == "__main__":
                 )
             )
 
+            if args.output_clip:
+                torch.save(predictions['image_feature_map'], args.output_clip)
             if args.output:
                 if os.path.isdir(args.output):
                     assert os.path.isdir(args.output), args.output
