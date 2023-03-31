@@ -423,11 +423,10 @@ class OVSegDEMO(MaskFormer):
             r = sem_seg_postprocess(r, image_size, height, width)
 
             clip_feature = clip_feature if clip_feature is not None else image_feature
-            mask_pred = sem_seg_postprocess(mask_pred, image_size, height, width)
-            bin_mask = mask_pred > self.clip_adapter.mask_thr
-            image_feature_map = torch.zeros(*image_size, D)
-            labels = torch.nonzero(bin_mask).detach().cpu()
-            image_feature_map[labels[:, 1], labels[:, 2]] = clip_feature.detach().cpu()[labels[:, 0], :]
+            mask_pred_result = sem_seg_postprocess(
+                mask_pred_result, image_size, height, width
+            )
+            image_feature_map = clip_feature[mask_pred_result.argmax(0)]
 
             
             processed_results.append({"sem_seg": r, 'image_feature_map': image_feature_map})
