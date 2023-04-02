@@ -4,6 +4,7 @@
 import logging
 
 import cv2
+import imutils
 import numpy as np
 import torch
 import yaml
@@ -33,7 +34,6 @@ class OVSegPredictor(DefaultPredictor):
             if self.input_format == "RGB":
                 # whether the model expects BGR inputs or RGB
                 original_image = original_image[:, :, ::-1]
-            original_image = cv2.resize(original_image, self.input_img_size)
             height, width = original_image.shape[:2]
             image = self.aug.get_transform(original_image).apply_image(original_image)
             image = torch.as_tensor(image.astype("float32").transpose(2, 0, 1))
@@ -41,6 +41,17 @@ class OVSegPredictor(DefaultPredictor):
             inputs = {"image": image, "height": height, "width": width, "class_names": class_names}
             predictions = self.model([inputs])[0]
             return predictions
+
+    def resize_img(self, img):
+        target_h, target_w = self.input_img_size
+        original_h, original_w = img.shape[:2]
+        # sufficient for current goals
+        if original_h > original_w:
+            img = imutils.resize(np.array(img), width=None, height=target_h)
+        else:
+            img = imutils.resize(np.array(img), width=target_w, height=None)
+        logging.info(f"Original image size: {original_h}x{original_w}, resized to {img.shape[0]}x{img.shape[1]}")
+        return img
 
 class OVSegVisualizer(Visualizer):
     def __init__(self, img_rgb, metadata=None, scale=1.0, instance_mode=ColorMode.IMAGE, class_names=None):
@@ -118,12 +129,10 @@ class VisualizationDemo(object):
             predictions (dict): the output of the model.
             vis_output (VisImage): the visualized image output.
         """
+        image = self.predictor.resize_img(image)
         predictions = self.predictor(image, class_names)
         # Convert image from OpenCV BGR format to Matplotlib RGB format.
         image = image[:, :, ::-1]
-        if image.shape != self.predictor.input_img_size:
-            logging.warning(f"Original image size: {image.shape}, resized to {self.predictor.input_img_size}")
-            image = cv2.resize(image, self.predictor.input_img_size)
         visualizer = OVSegVisualizer(image, self.metadata, instance_mode=self.instance_mode, class_names=class_names)
         if "sem_seg" in predictions:
             r = predictions["sem_seg"]
