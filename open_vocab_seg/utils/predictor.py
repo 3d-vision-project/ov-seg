@@ -45,12 +45,8 @@ class OVSegPredictor(DefaultPredictor):
     def resize_img(self, img):
         target_h, target_w = self.input_img_size
         original_h, original_w = img.shape[:2]
-        # sufficient for current goals
-        if original_h > original_w:
-            img = imutils.resize(np.array(img), width=None, height=target_h)
-        else:
-            img = imutils.resize(np.array(img), width=target_w, height=None)
-        logging.info(f"Original image size: {original_h}x{original_w}, resized to {img.shape[0]}x{img.shape[1]}")
+        img = cv2.resize(img, (target_w, target_h))
+        logging.warning(f"Original image size: {original_h}x{original_w}, resized to {img.shape[0]}x{img.shape[1]}")
         return img
 
 class OVSegVisualizer(Visualizer):
