@@ -102,6 +102,7 @@ class VisualizationDemo(object):
             raise NotImplementedError
         else:
             self.predictor = OVSegPredictor(cfg)
+            self.predictor.model.eval()
 
     def run_on_image(self, image, class_names):
         """

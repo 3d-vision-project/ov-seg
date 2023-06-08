@@ -2,6 +2,7 @@
 # Copyright (c) Meta Platforms, Inc. All Rights Reserved
 
 import argparse
+import gc
 import glob
 import multiprocessing as mp
 import os
@@ -22,6 +23,31 @@ from open_vocab_seg.utils import VisualizationDemo
 # constants
 WINDOW_NAME = "Open vocabulary segmentation"
 
+def seed_everything(seed: int):
+    import random, os
+    import numpy as np
+    import torch
+    
+    random.seed(seed)
+    os.environ['PYTHONHASHSEED'] = str(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = True
+    
+seed_everything(42)
+def pca_feat_map(f):
+    # x: H, W, D
+    H, W, D = f.shape
+    a = f.reshape(-1, D)
+    u,s,v = torch.pca_lowrank(a, q=3)
+    f_pca = (a @ v[..., :3]).reshape(H, W, 3)
+    return f_pca
+
+def norm_img(f):
+    m1, m2 = f.min(), f.max()
+    return (f - m1)/(m2-m1)
 
 def setup_cfg(args):
     # load config from file and command-line arguments
@@ -51,7 +77,7 @@ def get_parser():
     )
     parser.add_argument(
         "--class-names",
-        nargs="+",
+        # nargs="+",
         help="A list of user-defined class_names"
     )
     parser.add_argument(
@@ -82,7 +108,7 @@ if __name__ == "__main__":
     cfg = setup_cfg(args)
 
     demo = VisualizationDemo(cfg)
-    class_names = args.class_names
+    class_names = args.class_names.split('; ')
     if args.input:
         if len(args.input) == 1:
             args.input = glob.glob(os.path.expanduser(args.input[0]))
@@ -103,7 +129,20 @@ if __name__ == "__main__":
             )
 
             if args.output_clip:
-                torch.save(predictions['image_feature_map'], args.output_clip)
+                os.makedirs(args.output_clip, exist_ok=True)
+                pca_filename = os.path.join(args.output_clip, os.path.basename(path).replace('rgb', 'clip_pca'))
+                clip_filename = os.path.join(args.output_clip, os.path.basename(path).replace('rgb', 'clip').split('.')[0] + '.pt')
+                    
+                feat_map = predictions['image_feature_map']
+                cv2.imwrite(pca_filename, (norm_img(pca_feat_map(feat_map))*255).cpu().numpy())
+
+                outputs = {
+                    "masks": predictions['mask_pred_result'],
+                    "mask_embeds": predictions['clip_feature'],
+                }
+                outputs = {k: v.detach().cpu() for k, v in outputs.items()}
+                torch.save(outputs, clip_filename)
+
             if args.output:
                 if os.path.isdir(args.output):
                     assert os.path.isdir(args.output), args.output
@@ -117,5 +156,9 @@ if __name__ == "__main__":
                 cv2.imshow(WINDOW_NAME, visualized_output.get_image()[:, :, ::-1])
                 if cv2.waitKey(0) == 27:
                     break  # esc to quit
+            del predictions
+            del visualized_output
+            gc.collect()
+            torch.cuda.empty_cache()
     else:
         raise NotImplementedError

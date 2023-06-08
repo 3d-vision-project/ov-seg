@@ -423,13 +423,22 @@ class OVSegDEMO(MaskFormer):
             r = sem_seg_postprocess(r, image_size, height, width)
 
             clip_feature = clip_feature if clip_feature is not None else image_feature
+            if mask_pred_result.shape[0] == clip_feature.shape[0] + 1:
+                mask_pred_result = mask_pred_result[:-1]
+            # clip_feature = image_feature
             mask_pred_result = sem_seg_postprocess(
                 mask_pred_result, image_size, height, width
             )
-            image_feature_map = clip_feature[mask_pred_result.argmax(0)]
+            # image_feature_map = clip_feature[mask_pred_result.argmax(0)]
+            image_feature_map = torch.einsum('md,mhw->hwd', clip_feature, mask_pred_result)
 
             
-            processed_results.append({"sem_seg": r, 'image_feature_map': image_feature_map})
+            processed_results.append({
+                "sem_seg": r,
+                'image_feature_map': image_feature_map,
+                'clip_feature': clip_feature, 
+                'mask_pred_result': mask_pred_result
+            })
 
 
         return processed_results
